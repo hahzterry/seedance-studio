@@ -15,13 +15,14 @@ export function acceptFor(kinds: MediaKind[]): string {
  * Uploads a file directly to Higgsfield storage using a presigned URL.
  * The file never touches our Vercel backend, so the 4.5MB limit doesn't apply.
  * 
- * NOTE: The `_range` parameter is currently ignored. Trimming is disabled
- * until we can implement it client-side (or find a presigned-trim workflow).
+ * NOTE: The `_range` parameter is currently ignored. Server-side trimming is disabled
+ * because the file no longer passes through our backend. See /api/uploads/route.ts
+ * for the old trimming path (still usable for small videos under 4.5MB).
  */
 export async function uploadMedia(file: File, _range?: unknown): Promise<string> {
   if (file.size > MAX_UPLOAD_BYTES) throw new Error(`${file.name} is larger than 200 MB`);
 
-  // 1. Get a presigned URL from our backend
+  // 1. Get a presigned URL + required headers from our backend
   const presignRes = await fetch("/api/uploads/presign", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -37,15 +38,17 @@ export async function uploadMedia(file: File, _range?: unknown): Promise<string>
     throw new Error(error);
   }
 
-  const { uploadUrl, fileUrl } = (await presignRes.json()) as {
+  const { uploadUrl, fileUrl, uploadHeaders } = (await presignRes.json()) as {
     uploadUrl: string;
     fileUrl: string;
+    uploadHeaders: Record<string, string>;
   };
 
-  // 2. PUT the file directly to Higgsfield storage
+  // 2. PUT the file directly to Higgsfield storage using THEIR required headers.
+  // DO NOT add Content-Type here — Higgsfield controls that via uploadHeaders.
   const putRes = await fetch(uploadUrl, {
     method: "PUT",
-    headers: { "Content-Type": file.type },
+    headers: uploadHeaders,
     body: file,
   });
 
