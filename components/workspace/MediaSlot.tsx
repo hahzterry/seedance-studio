@@ -4,7 +4,6 @@ import { Film, ImageIcon, Loader2, Maximize2, Music, X } from "lucide-react";
 import { useState } from "react";
 import { Lightbox } from "./Lightbox";
 import { MediaThumb } from "./MediaThumb";
-import { useTrimmer } from "./TrimDialog";
 import type { MediaKind } from "@/lib/modes";
 import { acceptFor, uploadMedia } from "@/lib/upload-client";
 
@@ -20,23 +19,22 @@ interface Props {
   onDuration: (url: string, seconds: number) => void;
 }
 
-/** A single upload slot: start frame, end frame or source video. Videos can be trimmed before upload. */
+/** A single upload slot: start frame, end frame or source video. */
 export function MediaSlot({ label, hint, kind, value, required, onChange, onBusyChange, onDuration }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
-  const [trimDialog, trim] = useTrimmer();
   const Icon = kind === "image" ? ImageIcon : kind === "video" ? Film : Music;
 
   async function onFile(file: File | undefined) {
     if (!file) return;
     setError(null);
-    const choice = kind === "video" ? await trim(file) : "full";
-    if (!choice) return;
     setBusy(true);
     onBusyChange(1);
     try {
-      onChange(await uploadMedia(file, choice === "full" ? undefined : choice));
+      // Upload directly to Higgsfield via the presign flow.
+      // Trimming is no longer handled here since the file bypasses our server.
+      onChange(await uploadMedia(file));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -87,7 +85,6 @@ export function MediaSlot({ label, hint, kind, value, required, onChange, onBusy
       )}
       {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
       <Lightbox item={previewing && value ? { kind, url: value, label } : null} onClose={() => setPreviewing(false)} />
-      {trimDialog}
     </div>
   );
 }
