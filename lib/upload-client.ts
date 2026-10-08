@@ -12,19 +12,46 @@ export function acceptFor(kinds: MediaKind[]): string {
 }
 
 /**
- * Uploads through /api/uploads (which forwards to Higgsfield storage) and returns the public URL.
- * With `trim`, the server cuts the video to [start, end) seconds first.
+ * Uploads a file directly to Higgsfield storage using a presigned URL.
+ * The file never touches our Vercel backend, so the 4.5MB limit doesn't apply.
+ * 
+ * NOTE: The `_range` parameter is currently ignored. Trimming is disabled
+ * until we can implement it client-side (or find a presigned-trim workflow).
  */
-export async function uploadMedia(file: File, trim?: { start: number; end: number }): Promise<string> {
+export async function uploadMedia(file: File, _range?: unknown): Promise<string> {
   if (file.size > MAX_UPLOAD_BYTES) throw new Error(`${file.name} is larger than 200 MB`);
-  const data = new FormData();
-  data.append("file", file);
-  if (trim) {
-    data.append("trim_start", String(trim.start));
-    data.append("trim_end", String(trim.end));
+
+  // 1. Get a presigned URL from our backend
+  const presignRes = await fetch("/api/uploads/presign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      filename: file.name,
+      contentType: file.type,
+      size: file.size,
+    }),
+  });
+
+  if (!presignRes.ok) {
+    const { error } = await presignRes.json().catch(() => ({ error: "Presign failed" }));
+    throw new Error(error);
   }
-  const res = await fetch("/api/uploads", { method: "POST", body: data });
-  const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-  if (!res.ok || !body.url) throw new Error(body.error ?? `Upload failed (${res.status})`);
-  return body.url;
+
+  const { uploadUrl, fileUrl } = (await presignRes.json()) as {
+    uploadUrl: string;
+    fileUrl: string;
+  };
+
+  // 2. PUT the file directly to Higgsfield storage
+  const putRes = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file,
+  });
+
+  if (!putRes.ok) {
+    throw new Error(`Upload to Higgsfield failed: ${putRes.status}`);
+  }
+
+  return fileUrl;
 }
