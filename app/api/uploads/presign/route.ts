@@ -13,12 +13,11 @@ export async function POST(request: NextRequest) {
     | { filename?: unknown; contentType?: unknown; size?: unknown }
     | null;
 
-  const filename = typeof body?.filename === "string" ? body.filename : null;
   const contentType = typeof body?.contentType === "string" ? body.contentType : null;
   const size = typeof body?.size === "number" ? body.size : null;
 
-  if (!filename || !contentType || size === null) {
-    return NextResponse.json({ error: "Missing filename, contentType or size" }, { status: 400 });
+  if (!contentType || size === null) {
+    return NextResponse.json({ error: "Missing contentType or size" }, { status: 400 });
   }
   if (!isAllowedUploadType(contentType)) {
     return NextResponse.json({ error: `Unsupported file type: ${contentType}` }, { status: 415 });
@@ -28,21 +27,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // ⚠️ THIS LINE DEPENDS ON YOUR HIGGSFIELD SDK.
-    // The Higgsfield SDK likely exposes something like one of these:
-    //   getHiggsfield().createUpload({ filename, contentType, size })
-    //   getHiggsfield().files.createUpload(...)
-    //   getHiggsfield().getUploadUrl(...)
-    // It should return { uploadUrl, fileUrl } (or equivalent).
-    const { uploadUrl, fileUrl } = await getHiggsfield().createPresignedUpload({
-      filename,
-      contentType,
-      size,
-    });
+    // Get a presigned upload URL from Higgsfield.
+    // Higgsfield returns: { public_url, upload_url, content_type, upload_headers }
+    const target = await getHiggsfield().generateUploadUrl(contentType);
 
-    return NextResponse.json({ uploadUrl, fileUrl });
+    return NextResponse.json({
+      uploadUrl: target.upload_url,
+      fileUrl: target.public_url,
+      uploadHeaders: target.upload_headers,
+    });
   } catch (err) {
-    console.warn(`[uploads/presign] failed for ${filename}:`, err);
+    console.warn(`[uploads/presign] failed for ${contentType}:`, err);
     const { httpStatus, message } = describeError(err);
     return NextResponse.json({ error: message }, { status: httpStatus });
   }
